@@ -57,8 +57,3 @@
 **Final assessment**
 
 The extension does not contain classic signs of an active backdoor or unauthorized exfiltration in the repository snapshot you provided. However, the combination of a global `fetch` override, authenticated requests with `credentials: 'include'`, and a visible Bearer token raises privacy and attack-surface concerns. If you trust the author and accept these tradeoffs, the extension appears to perform its stated purpose. If you need to harden privacy, follow the recommended changes above.
-
-If you want, I can implement a minimally-invasive PR that (1) removes the global `fetch` override and replaces it with explicit, isolated requests, (2) removes the hard-coded token, and (3) adds a short privacy notice to `README.md`.
-
----
-Generated: 2025-11-23
