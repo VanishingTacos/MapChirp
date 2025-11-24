@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>X Location Display - Settings</title>
+  <style>
+    body {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #ffffff;
+      color: #0f1419;
+    }
+
+    h1 {
+      font-size: 24px;
+      margin-bottom: 25px;
+      color: #0f1419;
+    }
+
+    .settings-section {
+      margin-bottom: 30px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid #eff3f4;
+    }
+
+    .settings-section:last-child {
+      border-bottom: none;
+    }
+
+    .setting-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #0f1419;
+    }
+
+    .setting-description {
+      font-size: 14px;
+      color: #536471;
+      margin-bottom: 12px;
+      line-height: 1.5;
+    }
+
+    .toggle-container {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .toggle {
+      width: 50px;
+      height: 28px;
+      background: #ccc;
+      border: none;
+      border-radius: 14px;
+      cursor: pointer;
+      position: relative;
+      transition: background 0.3s;
+    }
+
+    .toggle.on {
+      background: #1d9bf0;
+    }
+
+    .toggle::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 24px;
+      height: 24px;
+      background: white;
+      border-radius: 50%;
+      transition: left 0.3s;
+    }
+
+    .toggle.on::after {
+      left: 24px;
+    }
+
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .input-group label {
+      font-size: 14px;
+      font-weight: 500;
+      color: #0f1419;
+    }
+
+    .input-group input,
+    .input-group textarea {
+      padding: 10px;
+      border: 1px solid #eff3f4;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 14px;
+      color: #0f1419;
+    }
+
+    .input-group textarea {
+      min-height: 80px;
+      resize: vertical;
+    }
+
+    .badge-preview {
+      display: inline-block;
+      padding: 6px 12px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 500;
+      margin-top: 10px;
+      background: #1d9bf0;
+      color: white;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .button.primary {
+      background: #1d9bf0;
+      color: white;
+    }
+
+    .button.primary:hover {
+      background: #1a8cd8;
+    }
+
+    .button.secondary {
+      background: #eff3f4;
+      color: #0f1419;
+    }
+
+    .button.secondary:hover {
+      background: #d7dbdc;
+    }
+
+    .notification {
+      display: none;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 15px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .notification.show {
+      display: block;
+    }
+
+    .notification.success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+
+    .notification.error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+
+    .info-box {
+      background: #f7f9f9;
+      padding: 12px;
+      border-radius: 8px;
+      border-left: 4px solid #1d9bf0;
+      font-size: 13px;
+      color: #536471;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>📍 X Location Display - Settings</h1>
+
+  <div id="notification" class="notification"></div>
+
+  <!-- Toggle Location Display -->
+  <div class="settings-section">
+    <div class="setting-title">Display Settings</div>
+    <div class="setting-description">Control whether location badges are displayed on your timeline</div>
+    <div class="toggle-container">
+      <button id="toggleDisplay" class="toggle on"></button>
+      <span id="toggleDisplayLabel">Location display is <strong>ON</strong></span>
+    </div>
+  </div>
+
+  <!-- Badge Style Customization -->
+  <div class="settings-section">
+    <div class="setting-title">Customize Badge Style</div>
+    <div class="setting-description">Customize how location badges appear on your timeline</div>
+
+    <div class="input-group">
+      <label>Badge Background Color</label>
+      <input type="color" id="badgeColor" value="#1d9bf0" title="Choose badge background color">
+    </div>
+
+    <div class="input-group">
+      <label>Badge Text Color</label>
+      <input type="color" id="textColor" value="#ffffff" title="Choose badge text color">
+    </div>
+
+    <div class="input-group">
+      <label>Badge Icon (emoji)</label>
+      <input type="text" id="badgeIcon" value="📍" maxlength="2" title="Enter a single emoji for the badge">
+    </div>
+
+    <div style="margin-top: 15px;">
+      <div class="setting-description">Preview:</div>
+      <div class="badge-preview" id="badgePreview">📍 New York</div>
+    </div>
+  </div>
+
+  <!-- Country Filter -->
+  <div class="settings-section">
+    <div class="setting-title">Filter Specific Countries</div>
+    <div class="setting-description">Enter country names to filter (one per line). Leave empty to show all countries.</div>
+
+    <div class="input-group">
+      <textarea id="countryFilter" placeholder="Example:&#10;United States&#10;United Kingdom&#10;Canada"></textarea>
+    </div>
+
+    <div class="info-box">
+      Filter works by checking if the location text contains the country name (case-insensitive). Leave empty to disable filtering.
+    </div>
+  </div>
+
+  <!-- Export Data -->
+  <div class="settings-section">
+    <div class="setting-title">Export Location Data</div>
+    <div class="setting-description">Download all cached location data as JSON</div>
+    <button class="button secondary" id="exportData">Export Data</button>
+    <div class="info-box">
+      This will download all cached locations in JSON format for backup or analysis.
+    </div>
+  </div>
+
+  <!-- Action Buttons -->
+  <div class="button-group">
+    <button class="button primary" id="saveSettings">Save Settings</button>
+    <button class="button secondary" id="resetSettings">Reset to Defaults</button>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

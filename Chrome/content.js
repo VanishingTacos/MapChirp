@@ -1,6 +1,46 @@
 // Cache for storing location data
 const locationCache = new Map();
 
+// Persistent cache loaded from storage
+let persistentCacheLoaded = false;
+
+// Settings variables
+let settings = {
+  displayEnabled: true,
+  badgeColor: '#1d9bf0',
+  textColor: '#ffffff',
+  badgeIcon: '📍',
+  countryFilter: []
+};
+
+// Load settings from storage
+async function loadSettings() {
+  try {
+    const result = await new Promise((resolve) => {
+      chrome.storage.local.get(['settings'], (items) => resolve(items || {}));
+    });
+    if (result.settings) {
+      settings = { ...settings, ...result.settings };
+    }
+  } catch (e) {
+    // Use defaults
+  }
+}
+
+// Listen for settings changes in storage
+if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && changes.settings) {
+      settings = { ...settings, ...changes.settings.newValue };
+      // Re-process visible tweets to apply new settings
+      processVisibleTweets();
+    }
+  });
+}
+
+// Load settings immediately
+loadSettings();
+
 // Track which usernames we've already processed
 const processedUsernames = new Set();
 
@@ -13,6 +53,35 @@ const pendingRequests = new Map();
 // Rate limiting: maximum concurrent requests
 const MAX_CONCURRENT_REQUESTS = 5;
 let activeRequests = 0;
+
+// Batch-load persistent cache from storage
+async function loadPersistentCache() {
+  try {
+    let result = {};
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      result = await new Promise((resolve) => {
+        chrome.storage.local.get(null, (items) => resolve(items || {}));
+      });
+    }
+
+    // Load all loc_* entries into memory cache
+    for (const [key, value] of Object.entries(result)) {
+      if (key.startsWith('loc_') && value && value.location && typeof value.timestamp === 'number') {
+        const username = key.substring(4);
+        const CACHE_DURATION = 24 * 60 * 60 * 1000;
+        if (Date.now() - value.timestamp < CACHE_DURATION) {
+          locationCache.set(username, value.location);
+        }
+      }
+    }
+    persistentCacheLoaded = true;
+  } catch (e) {
+    persistentCacheLoaded = true;
+  }
+}
+
+// Start loading cache immediately
+loadPersistentCache();
 
 // Intercept X's fetch requests to capture location data
 const originalFetch = window.fetch;
@@ -112,7 +181,7 @@ async function fetchLocationData(username) {
 
   const normalizedUsername = username.toLowerCase();
 
-  // Check cache first
+  // Check in-memory cache first (includes pre-loaded persistent cache)
   if (locationCache.has(normalizedUsername)) {
     return locationCache.get(normalizedUsername);
   }
@@ -193,10 +262,29 @@ async function fetchLocationData(username) {
 }
 
 /**
+ * Checks if location passes country filter
+ */
+function passesCountryFilter(location) {
+  if (!settings.countryFilter || settings.countryFilter.length === 0) {
+    return true; // No filter, show all
+  }
+  const lowerLocation = location.toLowerCase();
+  return settings.countryFilter.some(country => 
+    lowerLocation.includes(country.toLowerCase())
+  );
+}
+
+/**
  * Creates and injects location badge next to username
  */
 function injectLocationBadge(element, username, location) {
   try {
+    // Check if display is enabled
+    if (!settings.displayEnabled) return;
+
+    // Check country filter
+    if (!passesCountryFilter(location)) return;
+
     if (!location || !element) return;
 
     // Validate inputs
@@ -209,23 +297,51 @@ function injectLocationBadge(element, username, location) {
     const usernameContainer = element.querySelector('[data-testid="User-Name"]');
     if (!usernameContainer) return;
 
-    // Create location badge with XSS protection
+    // Create location badge with original structure (SVG icon + text)
     const badge = document.createElement('span');
     badge.className = 'x-location-badge';
 
-    // Create SVG icon
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('width', '14');
-    svg.setAttribute('height', '14');
-    svg.style.marginRight = '2px';
+    // Apply colors from settings: textColor controls icon/text, badgeColor provides a tinted background
+    try {
+      badge.style.color = settings.textColor || '';
+      // Convert badgeColor (hex) to rgba for subtle background tint
+      const hex = (settings.badgeColor || '#1d9bf0').replace('#', '');
+      if (hex.length === 3) {
+        const r = parseInt(hex[0] + hex[0], 16);
+        const g = parseInt(hex[1] + hex[1], 16);
+        const b = parseInt(hex[2] + hex[2], 16);
+        badge.style.backgroundColor = `rgba(${r}, ${g}, ${b}, 0.1)`;
+      } else if (hex.length === 6) {
+        const r = parseInt(hex.substring(0,2), 16);
+        const g = parseInt(hex.substring(2,4), 16);
+        const b = parseInt(hex.substring(4,6), 16);
+        badge.style.backgroundColor = `rgba(${r}, ${g}, ${b}, 0.08)`;
+      }
+    } catch (e) {
+      // ignore color parsing errors
+    }
 
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z');
-    path.setAttribute('fill', 'currentColor');
+    // Icon: prefer emoji from settings if provided, otherwise use original SVG
+    if (settings.badgeIcon && String(settings.badgeIcon).trim().length > 0) {
+      const iconSpan = document.createElement('span');
+      iconSpan.textContent = settings.badgeIcon;
+      iconSpan.style.marginRight = '6px';
+      iconSpan.style.display = 'inline-flex';
+      iconSpan.style.alignItems = 'center';
+      badge.appendChild(iconSpan);
+    } else {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('width', '14');
+      svg.setAttribute('height', '14');
+      svg.style.marginRight = '6px';
 
-    svg.appendChild(path);
-    badge.appendChild(svg);
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z');
+      path.setAttribute('fill', 'currentColor');
+      svg.appendChild(path);
+      badge.appendChild(svg);
+    }
 
     // Add text content (safely escaped)
     const textNode = document.createTextNode(location);
@@ -255,6 +371,16 @@ async function processTweet(tweetElement) {
     return;
   }
 
+  // Skip if already have this location (avoid redundant work)
+  const normalizedUsername = username.toLowerCase();
+  if (locationCache.has(normalizedUsername)) {
+    const location = locationCache.get(normalizedUsername);
+    if (location) {
+      injectLocationBadge(tweetElement, username, location);
+    }
+    return;
+  }
+
   const location = await fetchLocationData(username);
   if (location) {
     injectLocationBadge(tweetElement, username, location);
@@ -271,25 +397,33 @@ function processVisibleTweets() {
 }
 
 /**
- * Sets up MutationObserver to watch for new tweets
+ * Sets up MutationObserver to watch for new tweets (with debouncing)
  */
 function observeTimeline() {
+  let debounceTimeout;
+  const processNewTweets = () => {
+    clearTimeout(debounceTimeout);
+    debounceTimeout = setTimeout(() => {
+      processVisibleTweets();
+    }, 100);
+  };
+
   const observer = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
-      mutation.addedNodes.forEach((node) => {
+    let hasTweets = false;
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) {
         if (node.nodeType === 1) { // Element node
-          // Check if it's a tweet
-          if (node.getAttribute && node.getAttribute('data-testid') === 'tweet') {
-            processTweet(node);
-          }
-          // Check if it contains tweets
-          const tweets = node.querySelectorAll?.('article[data-testid="tweet"]');
-          if (tweets && tweets.length > 0) {
-            tweets.forEach(tweet => processTweet(tweet));
+          if (node.getAttribute?.('data-testid') === 'tweet' || node.querySelectorAll?.('article[data-testid="tweet"]').length > 0) {
+            hasTweets = true;
+            break;
           }
         }
-      });
-    });
+      }
+      if (hasTweets) break;
+    }
+    if (hasTweets) {
+      processNewTweets();
+    }
   });
 
   // Start observing the main timeline
@@ -301,14 +435,14 @@ function observeTimeline() {
     });
   }
 
-  // Also process existing tweets
+  // Process existing tweets immediately
   processVisibleTweets();
 }
 
 /**
  * Waits for tweets to appear on the page (handles async loading)
  */
-function waitForTweets(maxAttempts = 10, interval = 500) {
+function waitForTweets(maxAttempts = 4, interval = 250) {
   let attempts = 0;
 
   const checkForTweets = () => {
@@ -323,6 +457,7 @@ function waitForTweets(maxAttempts = 10, interval = 500) {
     if (attempts < maxAttempts) {
       setTimeout(checkForTweets, interval);
     } else {
+      // Still start observing even if no tweets yet
       observeTimeline();
     }
   };
@@ -338,8 +473,8 @@ function init() {
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init);
 } else {
-  // Small delay to ensure X's React app has started
-  setTimeout(init, 1000);
+  // Shorter delay to start faster
+  setTimeout(init, 100);
 }
 
 // Re-process when navigating (SPA behavior)

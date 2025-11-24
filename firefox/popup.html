@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>X Location Display</title>
+  <title>X Location Badge</title>
   <style>
     body {
       width: 300px;
@@ -104,6 +104,37 @@
       text-align: center;
     }
 
+    .notification {
+      display: none;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 15px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .notification.show {
+      display: block;
+    }
+
+    .notification.success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+
+    .notification.error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+
+    .notification.info {
+      background: #d1ecf1;
+      color: #0c5460;
+      border: 1px solid #bee5eb;
+    }
+
     /* Follow Gate Styles */
     .follow-gate {
       text-align: center;
@@ -202,56 +233,12 @@
   </style>
 </head>
 <body>
-  <!-- Follow Gate Section -->
-  <div id="followSection" class="section">
-    <div class="follow-gate">
-      <div class="follow-icon">🔒</div>
-      <div class="follow-title">Follow to Unlock</div>
-      <div class="follow-description">
-        To use this extension, please follow @Rayomand14 on X. This helps support the development of free tools like this!
-      </div>
-
-      <div class="profile-box">
-        <div class="profile-avatar">R</div>
-        <div class="profile-info">
-          <div class="profile-name">Rayomand</div>
-          <div class="profile-handle">@Rayomand14</div>
-        </div>
-      </div>
-
-      <a href="https://x.com/Rayomand14" target="_blank" class="button" id="followButton">
-        Follow @Rayomand14
-      </a>
-
-      <div class="countdown" id="countdown"></div>
-
-      <div class="info" style="margin-top: 15px; font-size: 12px; color: #536471;">
-        After following, reopen this popup to continue.
-      </div>
-    </div>
-  </div>
-
-  <!-- Activation Section -->
-  <div id="activationSection" class="section">
-    <div class="activation-gate">
-      <div class="success-icon">✅</div>
-      <div class="activation-title">Almost Ready!</div>
-      <div class="activation-description">
-        Thanks for following! Click the button below to activate the extension.
-      </div>
-
-      <button class="button" id="activateButton">
-        Activate Extension
-      </button>
-    </div>
-  </div>
-
-  <!-- Main Extension Section -->
-  <div id="mainSection" class="section">
-    <h1>📍 X Location Display</h1>
+  <!-- Main Extension Section (Firefox build) -->
+  <div id="mainSection" class="section active">
+    <h1>📍 X Location Badge</h1>
 
     <div class="info">
-      Automatically displays user locations from their About section directly in your timeline.
+      Displays user locations from their About section directly in your timeline.
     </div>
 
     <div class="stats">
@@ -264,6 +251,8 @@
         <span class="stat-value" id="status">Active</span>
       </div>
     </div>
+
+    <div id="notification" class="notification"></div>
 
     <button class="button" id="clearCache">Clear Cache</button>
     <button class="button secondary" id="openOptions">Settings</button>

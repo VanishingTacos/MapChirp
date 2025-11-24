@@ -1,0 +1,53 @@
+{
+  "manifest_version": 2,
+  "name": "X Location Badge",
+  "version": "1.0.0",
+  "description": "Displays user locations from their About section directly in your X/Twitter timeline for easier context.",
+  "permissions": [
+    "storage",
+    "https://x.com/*",
+    "https://twitter.com/*"
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://x.com/*",
+        "https://twitter.com/*"
+      ],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    "page_inject.js"
+  ],
+  "browser_action": {
+    "default_popup": "popup.html",
+    "default_title": "X Location Display",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "options_page": "options.html"
+  ,
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "x-location-badge@local",
+      "strict_min_version": "145.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  }
+}
