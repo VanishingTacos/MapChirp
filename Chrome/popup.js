@@ -29,6 +29,12 @@ function setupEventListeners() {
     clearCacheButton.addEventListener('click', clearCache);
   }
 
+  // Open map button
+  const openMapButton = document.getElementById('openMap');
+  if (openMapButton) {
+    openMapButton.addEventListener('click', openMapView);
+  }
+
   // Options button
   const optionsButton = document.getElementById('openOptions');
   if (optionsButton) {
@@ -81,4 +87,16 @@ function clearCache() {
  */
 function openOptions() {
   chrome.runtime.openOptionsPage();
+}
+
+/**
+ * Opens the country map view in a new tab
+ */
+function openMapView() {
+  const url = chrome.runtime.getURL('map.html');
+  if (chrome.tabs && chrome.tabs.create) {
+    chrome.tabs.create({ url });
+  } else {
+    window.open(url, '_blank');
+  }
 }
