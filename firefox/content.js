@@ -126,8 +126,24 @@ const processedTweets = new WeakSet();
 const pendingRequests = new Map();
 
 // Rate limiting: maximum concurrent requests
-const MAX_CONCURRENT_REQUESTS = 5;
+const MAX_CONCURRENT_REQUESTS = 3;
 let activeRequests = 0;
+
+// Advanced rate limiting: request queue and throttling
+const requestQueue = [];
+const REQUEST_INTERVAL = 300; // Minimum ms between requests
+let lastRequestTime = 0;
+let isProcessingQueue = false;
+
+// Exponential backoff tracking
+const failedRequests = new Map(); // username -> { count, lastAttempt, backoffUntil }
+const MAX_RETRIES = 3;
+const BASE_BACKOFF = 2000; // 2 seconds
+const MAX_BACKOFF = 60000; // 60 seconds
+
+// Rate limit detection
+let rateLimitedUntil = 0;
+const RATE_LIMIT_COOLDOWN = 30000; // 30 seconds cooldown after rate limit
 
 // Inject the page script so it runs in page context and can override window.fetch
 (function injectPageObserver() {
@@ -221,7 +237,162 @@ function getCsrfToken() {
 }
 
 /**
- * Fetches location data using X's GraphQL API
+ * Checks if a username is currently in backoff period
+ */
+function isInBackoff(username) {
+  const failed = failedRequests.get(username);
+  if (!failed) return false;
+  return Date.now() < failed.backoffUntil;
+}
+
+/**
+ * Records a failed request and calculates backoff
+ */
+function recordFailure(username) {
+  const failed = failedRequests.get(username) || { count: 0, lastAttempt: 0, backoffUntil: 0 };
+  failed.count++;
+  failed.lastAttempt = Date.now();
+  
+  // Exponential backoff: 2s, 4s, 8s, then cap at MAX_BACKOFF
+  const backoffTime = Math.min(BASE_BACKOFF * Math.pow(2, failed.count - 1), MAX_BACKOFF);
+  failed.backoffUntil = Date.now() + backoffTime;
+  
+  failedRequests.set(username, failed);
+}
+
+/**
+ * Clears failure tracking for a username after success
+ */
+function clearFailure(username) {
+  failedRequests.delete(username);
+}
+
+/**
+ * Processes the request queue with proper throttling
+ */
+async function processRequestQueue() {
+  if (isProcessingQueue) return;
+  isProcessingQueue = true;
+
+  while (requestQueue.length > 0) {
+    // Check if we're rate limited
+    if (Date.now() < rateLimitedUntil) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      continue;
+    }
+
+    // Check concurrent request limit
+    if (activeRequests >= MAX_CONCURRENT_REQUESTS) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      continue;
+    }
+
+    // Enforce minimum time between requests
+    const timeSinceLastRequest = Date.now() - lastRequestTime;
+    if (timeSinceLastRequest < REQUEST_INTERVAL) {
+      await new Promise(resolve => setTimeout(resolve, REQUEST_INTERVAL - timeSinceLastRequest));
+    }
+
+    const { username, resolve, reject } = requestQueue.shift();
+    lastRequestTime = Date.now();
+    
+    executeLocationFetch(username).then(resolve).catch(reject);
+  }
+
+  isProcessingQueue = false;
+}
+
+/**
+ * Executes the actual location fetch with error handling
+ */
+async function executeLocationFetch(username) {
+  const normalizedUsername = username.toLowerCase();
+  activeRequests++;
+
+  try {
+    // Get CSRF token from cookies
+    const csrfToken = getCsrfToken();
+    if (!csrfToken) {
+      recordFailure(normalizedUsername);
+      locationCache.set(normalizedUsername, null);
+      return null;
+    }
+
+    // Use X's AboutAccountQuery GraphQL endpoint
+    const queryId = 'XRqGa7EeokUU5kppkh13EA';
+    const variables = JSON.stringify({ screenName: username });
+    const url = `https://x.com/i/api/graphql/${queryId}/AboutAccountQuery?variables=${encodeURIComponent(variables)}`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'accept': '*/*',
+        'authorization': 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA',
+        'content-type': 'application/json',
+        'x-csrf-token': csrfToken,
+        'x-twitter-active-user': 'yes',
+        'x-twitter-auth-type': 'OAuth2Session',
+        'x-twitter-client-language': 'en',
+      },
+      credentials: 'include'
+    });
+
+    // Check for rate limiting
+    if (response.status === 429) {
+      rateLimitedUntil = Date.now() + RATE_LIMIT_COOLDOWN;
+      recordFailure(normalizedUsername);
+      locationCache.set(normalizedUsername, null);
+      return null;
+    }
+
+    if (!response.ok) {
+      recordFailure(normalizedUsername);
+      locationCache.set(normalizedUsername, null);
+      return null;
+    }
+
+    const data = await response.json();
+
+    // Extract location from response
+    const location = data?.data?.user_result_by_screen_name?.result?.about_profile?.account_based_in;
+
+    if (location && typeof location === 'string' && location.trim().length > 0) {
+      const sanitizedLocation = sanitizeLocation(location);
+      if (sanitizedLocation) {
+        clearFailure(normalizedUsername); // Clear failure tracking on success
+        locationCache.set(normalizedUsername, sanitizedLocation);
+        
+        // Persist to storage
+        try {
+          await storageSet({
+            [`loc_${normalizedUsername}`]: {
+              location: sanitizedLocation,
+              timestamp: Date.now()
+            }
+          });
+        } catch (e) {
+          // ignore storage errors
+        }
+        
+        return sanitizedLocation;
+      }
+    }
+
+    locationCache.set(normalizedUsername, null);
+    return null;
+
+  } catch (error) {
+    recordFailure(normalizedUsername);
+    locationCache.set(normalizedUsername, null);
+    return null;
+  } finally {
+    activeRequests--;
+    pendingRequests.delete(normalizedUsername);
+  }
+}
+
+/**
+ * Fetches location data using X's GraphQL API with advanced rate limiting
  */
 async function fetchLocationData(username) {
   // Validate username
@@ -231,9 +402,14 @@ async function fetchLocationData(username) {
 
   const normalizedUsername = username.toLowerCase();
 
-  // Check in-memory cache first (includes pre-loaded persistent cache)
+  // Check in-memory cache first
   if (locationCache.has(normalizedUsername)) {
     return locationCache.get(normalizedUsername);
+  }
+
+  // Check if in backoff period
+  if (isInBackoff(normalizedUsername)) {
+    return null;
   }
 
   // Check persistent storage cache if not loaded yet
@@ -251,95 +427,28 @@ async function fetchLocationData(username) {
         }
       }
     } catch (e) {
-      // ignore storage errors and continue to network fetch
+      // ignore storage errors
     }
   }
 
-  // Check if request is already pending for this username
+  // Check if request is already pending
   if (pendingRequests.has(normalizedUsername)) {
     return pendingRequests.get(normalizedUsername);
   }
 
-  // Rate limiting: wait if too many concurrent requests
-  while (activeRequests >= MAX_CONCURRENT_REQUESTS) {
-    await new Promise(resolve => setTimeout(resolve, 100));
+  // Check retry limit
+  const failed = failedRequests.get(normalizedUsername);
+  if (failed && failed.count >= MAX_RETRIES) {
+    return null;
   }
 
-  activeRequests++;
+  // Create queued request promise
+  const fetchPromise = new Promise((resolve, reject) => {
+    requestQueue.push({ username, resolve, reject });
+    processRequestQueue();
+  });
 
-  // Create the fetch promise
-  const fetchPromise = (async () => {
-    try {
-      // Get CSRF token from cookies
-      const csrfToken = getCsrfToken();
-      if (!csrfToken) {
-        locationCache.set(normalizedUsername, null);
-        return null;
-      }
-
-      // Use X's AboutAccountQuery GraphQL endpoint
-      const queryId = 'XRqGa7EeokUU5kppkh13EA';
-      const variables = JSON.stringify({ screenName: username });
-      const url = `https://x.com/i/api/graphql/${queryId}/AboutAccountQuery?variables=${encodeURIComponent(variables)}`;
-
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'accept': '*/*',
-          'authorization': 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA',
-          'content-type': 'application/json',
-          'x-csrf-token': csrfToken,
-          'x-twitter-active-user': 'yes',
-          'x-twitter-auth-type': 'OAuth2Session',
-          'x-twitter-client-language': 'en',
-        },
-        credentials: 'include' // Include cookies for authentication
-      });
-
-      if (!response.ok) {
-        locationCache.set(normalizedUsername, null);
-        return null;
-      }
-
-      const data = await response.json();
-
-      // Extract location from response with safe navigation
-      const location = data?.data?.user_result_by_screen_name?.result?.about_profile?.account_based_in;
-
-      if (location && typeof location === 'string' && location.trim().length > 0) {
-        const sanitizedLocation = sanitizeLocation(location);
-        if (sanitizedLocation) {
-          locationCache.set(normalizedUsername, sanitizedLocation);
-          // Persist to storage
-          try {
-            await storageSet({
-              [`loc_${normalizedUsername}`]: {
-                location: sanitizedLocation,
-                timestamp: Date.now()
-              }
-            });
-          } catch (e) {
-            // ignore storage errors
-          }
-        }
-        return sanitizedLocation;
-      } else {
-        locationCache.set(normalizedUsername, null);
-        return null;
-      }
-
-    } catch (error) {
-      locationCache.set(normalizedUsername, null);
-      return null;
-    } finally {
-      activeRequests--;
-      pendingRequests.delete(normalizedUsername);
-    }
-  })();
-
-  // Store pending request
   pendingRequests.set(normalizedUsername, fetchPromise);
-
   return fetchPromise;
 }
 
@@ -480,7 +589,17 @@ async function processTweet(tweetElement) {
 function processVisibleTweets() {
   // Find all tweet articles
   const tweets = document.querySelectorAll('article[data-testid="tweet"]');
-  tweets.forEach(tweet => processTweet(tweet));
+  
+  // Process in smaller batches to avoid queue overflow
+  const BATCH_SIZE = 10;
+  const tweetsArray = Array.from(tweets);
+  
+  for (let i = 0; i < tweetsArray.length; i += BATCH_SIZE) {
+    const batch = tweetsArray.slice(i, i + BATCH_SIZE);
+    setTimeout(() => {
+      batch.forEach(tweet => processTweet(tweet));
+    }, Math.floor(i / BATCH_SIZE) * 200); // Stagger batches by 200ms
+  }
 }
 
 /**
@@ -492,7 +611,7 @@ function observeTimeline() {
     clearTimeout(debounceTimeout);
     debounceTimeout = setTimeout(() => {
       processVisibleTweets();
-    }, 100);
+    }, 500); // Increased debounce to reduce rapid-fire requests
   };
 
   const observer = new MutationObserver((mutations) => {

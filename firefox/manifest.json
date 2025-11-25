@@ -30,7 +30,7 @@
   ],
   "browser_action": {
     "default_popup": "popup.html",
-    "default_title": "X Location Display",
+    "default_title": "MapChirp",
     "default_icon": {
       "16": "icon16.png",
       "48": "icon48.png",
@@ -46,7 +46,7 @@
   ,
   "browser_specific_settings": {
     "gecko": {
-      "id": "x-location-badge@local",
+      "id": "@mapchirp",
       "strict_min_version": "145.0",
       "data_collection_permissions": {
         "required": ["none"]
