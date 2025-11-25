@@ -56,6 +56,11 @@ function setupEventListeners() {
   if (optionsButton) {
     optionsButton.addEventListener('click', openOptions);
   }
+
+  const openMapButton = document.getElementById('openMap');
+  if (openMapButton) {
+    openMapButton.addEventListener('click', openMapView);
+  }
 }
 
 async function updateStats() {
@@ -114,5 +119,18 @@ function openOptions() {
   } else {
     // Fallback for Chrome
     chrome.runtime.openOptionsPage();
+  }
+}
+
+function openMapView() {
+  const url = (typeof browser !== 'undefined' && browser.runtime?.getURL)
+    ? browser.runtime.getURL('map.html')
+    : chrome.runtime.getURL('map.html');
+  if (typeof browser !== 'undefined' && browser.tabs?.create) {
+    browser.tabs.create({ url });
+  } else if (chrome.tabs && chrome.tabs.create) {
+    chrome.tabs.create({ url });
+  } else {
+    window.open(url, '_blank');
   }
 }

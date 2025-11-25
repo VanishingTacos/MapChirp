@@ -5,6 +5,7 @@ A small browser extension (Chrome & Firefox) that displays location information 
 **Features**
 - Browser extension support for Chrome and Firefox.
 - Injects UI into Twitter/X pages to display location information.
+ - Map View: visualize cached users by country on a simple map.
 
 **Repository structure**
 - `Chrome/` — files for the Chrome extension (manifest.json, background.js, content.js, popup.html, options.html, styles.css).
@@ -25,6 +26,15 @@ A small browser extension (Chrome & Firefox) that displays location information 
 **Usage**
 - Open Twitter/X and look for the extension UI injected into tweets or use the extension popup to control settings.
 - Use `options.html` (Options page) to configure preferences if available.
+ - To view a country map of users you've cached:
+	 - Open the extension popup and click `Open Map View`.
+	 - Enter a country name (e.g., `United States`) and click `Apply`.
+	 - The map will show markers for all cached users whose location contains that country name.
+	 - Use the Zoom selector to adjust the static map scale. Click `Recenter` to re-fit the current data.
+
+Notes:
+- The Map View uses OpenStreetMap tiles and Nominatim geocoding. It reads your existing cached locations from storage and geocodes unique location strings. Geocoding results are cached locally to reduce requests.
+- Tiles from `tile.openstreetmap.org` and geocoding from `nominatim.openstreetmap.org` require network access; the manifests include host permissions accordingly.
 
 **Development**
 - To debug: open the browser extension inspector (Extensions page -> Inspect views) or the regular page console for content script logs.

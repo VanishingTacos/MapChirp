@@ -1,14 +1,16 @@
 {
   "manifest_version": 3,
   "name": "MapChirp",
-  "version": "1.2.0",
+  "version": "1.0.0",
   "description": "Displays user locations from their About section directly in your X/Twitter timeline for easier context.",
   "permissions": [
     "storage"
   ],
   "host_permissions": [
     "https://x.com/*",
-    "https://twitter.com/*"
+    "https://twitter.com/*",
+    "https://tile.openstreetmap.org/*",
+    "https://nominatim.openstreetmap.org/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -21,8 +23,13 @@
       ],
       "js": ["content.js"],
       "css": ["styles.css"],
-      "run_at": "document_start",
-      "world": "MAIN"
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["page_inject.js"],
+      "matches": ["https://x.com/*", "https://twitter.com/*"]
     }
   ],
   "icons": {
@@ -32,7 +39,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "X Location Display"
+    "default_title": "MapChirp"
   },
   "options_page": "options.html"
 }
