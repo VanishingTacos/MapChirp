@@ -8,7 +8,8 @@
     "https://x.com/*",
     "https://twitter.com/*",
     "https://tile.openstreetmap.org/*",
-    "https://nominatim.openstreetmap.org/*"
+    "https://nominatim.openstreetmap.org/*",
+    "https://api.mapbox.com/*"
   ],
   "background": {
     "scripts": ["background.js"]
