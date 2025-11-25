@@ -3,10 +3,15 @@
   const statText = document.getElementById('statText');
   const mapContainer = document.getElementById('map');
   const saveImageBtn = document.getElementById('saveImageBtn');
+  const viewToggleBtn = document.getElementById('viewToggleBtn');
+  const chartView = document.getElementById('chartView');
+  const pieChartCanvas = document.getElementById('pieChart');
+  const chartLegend = document.getElementById('chartLegend');
 
   let users = [];
   let points = [];
   let currentCanvas = null;
+  let currentView = 'map'; // 'map' or 'chart'
 
   function storageGet(keys) { 
     return new Promise((resolve) => chrome.storage.local.get(keys || null, (items) => resolve(items || {}))); 
@@ -425,6 +430,151 @@
       renderStaticMap();
     } catch (e) { console.error('Error in apply():', e); setStat(0); }
   }
+  function extractCountryFromLocation(location) {
+    // Extract likely country name (last part after comma, or whole string)
+    const parts = location.split(',').map(s => s.trim());
+    return parts[parts.length - 1] || location;
+  }
+
+  function getCountryDistribution() {
+    const countryCounts = new Map();
+    for (const user of users) {
+      const country = extractCountryFromLocation(user.location);
+      countryCounts.set(country, (countryCounts.get(country) || 0) + 1);
+    }
+    // Sort by count descending
+    return Array.from(countryCounts.entries())
+      .map(([country, count]) => ({ country, count }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  function generateColors(count) {
+    // For small datasets, use predefined vibrant colors
+    const baseColors = [
+      '#1d9bf0', '#e0245e', '#17bf63', '#f45d22', '#794bc4',
+      '#ffad1f', '#e8265e', '#00ba7c', '#ff6b35', '#5b51d8',
+      '#ffcc00', '#c0392b', '#27ae60', '#e67e22', '#9b59b6',
+      '#f39c12', '#16a085', '#d35400', '#3498db', '#e74c3c'
+    ];
+    
+    // If we have fewer items than base colors, use them directly
+    if (count <= baseColors.length) {
+      return baseColors.slice(0, count);
+    }
+    
+    // For larger datasets, generate colors dynamically using HSL
+    const colors = [];
+    const goldenRatioConjugate = 0.618033988749895; // For better distribution
+    let hue = Math.random(); // Start with random hue for variety
+    
+    for (let i = 0; i < count; i++) {
+      // Use golden ratio to distribute hues evenly
+      hue += goldenRatioConjugate;
+      hue %= 1;
+      
+      // Vary saturation and lightness slightly for visual distinction
+      const saturation = 65 + (i % 3) * 10; // 65%, 75%, 85%
+      const lightness = 50 + (i % 4) * 5;    // 50%, 55%, 60%, 65%
+      
+      // Convert HSL to RGB to hex
+      const h = hue * 360;
+      const s = saturation / 100;
+      const l = lightness / 100;
+      
+      const c = (1 - Math.abs(2 * l - 1)) * s;
+      const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+      const m = l - c / 2;
+      
+      let r, g, b;
+      if (h < 60) { r = c; g = x; b = 0; }
+      else if (h < 120) { r = x; g = c; b = 0; }
+      else if (h < 180) { r = 0; g = c; b = x; }
+      else if (h < 240) { r = 0; g = x; b = c; }
+      else if (h < 300) { r = x; g = 0; b = c; }
+      else { r = c; g = 0; b = x; }
+      
+      const toHex = (val) => {
+        const hex = Math.round((val + m) * 255).toString(16);
+        return hex.length === 1 ? '0' + hex : hex;
+      };
+      
+      colors.push(`#${toHex(r)}${toHex(g)}${toHex(b)}`);
+    }
+    
+    return colors;
+  }
+
+  function renderPieChart() {
+    if (!users.length) {
+      chartLegend.innerHTML = '<div style="text-align:center;color:#536471;padding:40px;">No data to display</div>';
+      return;
+    }
+
+    const distribution = getCountryDistribution();
+    const total = users.length;
+    const colors = generateColors(distribution.length);
+
+    // Draw pie chart
+    const canvas = pieChartCanvas;
+    const ctx = canvas.getContext('2d');
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    const radius = Math.min(centerX, centerY) - 20;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    let currentAngle = -Math.PI / 2; // Start at top
+
+    distribution.forEach((item, index) => {
+      const sliceAngle = (item.count / total) * 2 * Math.PI;
+      
+      // Draw slice
+      ctx.beginPath();
+      ctx.moveTo(centerX, centerY);
+      ctx.arc(centerX, centerY, radius, currentAngle, currentAngle + sliceAngle);
+      ctx.closePath();
+      ctx.fillStyle = colors[index];
+      ctx.fill();
+      
+      // Add stroke for separation
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      currentAngle += sliceAngle;
+    });
+
+    // Render legend
+    chartLegend.innerHTML = '';
+    distribution.forEach((item, index) => {
+      const percent = ((item.count / total) * 100).toFixed(1);
+      const legendItem = document.createElement('div');
+      legendItem.className = 'legend-item';
+      legendItem.innerHTML = `
+        <div class="legend-color" style="background-color: ${colors[index]}"></div>
+        <div class="legend-label">${item.country}</div>
+        <div class="legend-count">${item.count}</div>
+        <div class="legend-percent">(${percent}%)</div>
+      `;
+      chartLegend.appendChild(legendItem);
+    });
+  }
+
+  function toggleView() {
+    if (currentView === 'map') {
+      currentView = 'chart';
+      mapContainer.classList.add('hidden');
+      chartView.classList.add('active');
+      viewToggleBtn.textContent = '🗺️ Map View';
+      renderPieChart();
+    } else {
+      currentView = 'map';
+      mapContainer.classList.remove('hidden');
+      chartView.classList.remove('active');
+      viewToggleBtn.textContent = '📊 Chart View';
+    }
+  }
+
   function saveMapImage() {
     if (!currentCanvas) {
       alert('No map to save. Please wait for the map to finish rendering.');
@@ -453,6 +603,10 @@
   
   if (saveImageBtn) {
     saveImageBtn.addEventListener('click', saveMapImage);
+  }
+  
+  if (viewToggleBtn) {
+    viewToggleBtn.addEventListener('click', toggleView);
   }
   
   window.addEventListener('resize', () => { if (points.length) renderStaticMap(); });
