@@ -103,7 +103,7 @@ loadPersistentCache();
 
 // Intercept X's fetch requests to capture location data
 const originalFetch = window.fetch;
-window.fetch = async function(...args) {
+window.fetch = async function (...args) {
   const response = await originalFetch.apply(this, args);
 
   // Check if this is a GraphQL AboutAccountQuery response
@@ -121,7 +121,7 @@ window.fetch = async function(...args) {
         const sanitizedLocation = sanitizeLocation(location);
         if (sanitizedLocation) {
           locationCache.set(normalizedUsername, sanitizedLocation);
-          
+
           // Persist to storage
           try {
             chrome.storage.local.set({
@@ -150,7 +150,7 @@ function normalizeCountryNames(location) {
   const countryReplacements = {
     'Viet Nam': 'Vietnam'
   };
-  
+
   let normalized = location;
   for (const [wrong, correct] of Object.entries(countryReplacements)) {
     normalized = normalized.replace(new RegExp(wrong, 'g'), correct);
@@ -163,9 +163,24 @@ function normalizeCountryNames(location) {
  */
 function sanitizeLocation(location) {
   if (!location || typeof location !== 'string') return null;
-  const trimmed = location.trim();
+  let trimmed = location.trim();
   if (trimmed.length < 1 || trimmed.length > 100) return null;
   if (['null', 'undefined', 'N/A', 'n/a'].includes(trimmed.toLowerCase())) return null;
+
+  // Check if it looks like a country code (2 uppercase letters)
+  // X/Twitter sometimes returns "US", "DE", etc. instead of full names
+  if (/^[A-Z]{2}$/.test(trimmed)) {
+    try {
+      const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
+      const fullName = regionNames.of(trimmed);
+      if (fullName) {
+        trimmed = fullName;
+      }
+    } catch (e) {
+      // ignore, keep original
+    }
+  }
+
   return normalizeCountryNames(trimmed);
 }
 
@@ -246,11 +261,11 @@ function recordFailure(username) {
   const failed = failedRequests.get(username) || { count: 0, lastAttempt: 0, backoffUntil: 0 };
   failed.count++;
   failed.lastAttempt = Date.now();
-  
+
   // Exponential backoff: 2s, 4s, 8s, then cap at MAX_BACKOFF
   const backoffTime = Math.min(BASE_BACKOFF * Math.pow(2, failed.count - 1), MAX_BACKOFF);
   failed.backoffUntil = Date.now() + backoffTime;
-  
+
   failedRequests.set(username, failed);
 }
 
@@ -289,7 +304,7 @@ async function processRequestQueue() {
 
     const { username, resolve, reject } = requestQueue.shift();
     lastRequestTime = Date.now();
-    
+
     executeLocationFetch(username).then(resolve).catch(reject);
   }
 
@@ -355,7 +370,7 @@ async function executeLocationFetch(username) {
       if (sanitizedLocation) {
         clearFailure(normalizedUsername); // Clear failure tracking on success
         locationCache.set(normalizedUsername, sanitizedLocation);
-      
+
         // Persist to storage
         try {
           chrome.storage.local.set({
@@ -367,7 +382,7 @@ async function executeLocationFetch(username) {
         } catch (e) {
           // ignore storage errors
         }
-        
+
         return sanitizedLocation;
       }
     }
@@ -456,7 +471,7 @@ function passesCountryFilter(location) {
     return true; // No filter, show all
   }
   const lowerLocation = location.toLowerCase();
-  return settings.countryFilter.some(country => 
+  return settings.countryFilter.some(country =>
     lowerLocation.includes(country.toLowerCase())
   );
 }
@@ -585,11 +600,11 @@ async function processTweet(tweetElement) {
 function processVisibleTweets() {
   // Find all tweet articles
   const tweets = document.querySelectorAll('article[data-testid="tweet"]');
-  
+
   // Process in smaller batches to avoid queue overflow
   const BATCH_SIZE = 10;
   const tweetsArray = Array.from(tweets);
-  
+
   for (let i = 0; i < tweetsArray.length; i += BATCH_SIZE) {
     const batch = tweetsArray.slice(i, i + BATCH_SIZE);
     setTimeout(() => {
