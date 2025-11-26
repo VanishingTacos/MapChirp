@@ -167,9 +167,9 @@ function sanitizeLocation(location) {
   if (trimmed.length < 1 || trimmed.length > 100) return null;
   if (['null', 'undefined', 'N/A', 'n/a'].includes(trimmed.toLowerCase())) return null;
 
-  // Check if it looks like a country code (2 uppercase letters)
+  // Check if it looks like a country code (2 uppercase or lowercase letters)
   // X/Twitter sometimes returns "US", "DE", etc. instead of full names
-  if (/^[A-Z]{2}$/.test(trimmed)) {
+  if (/^[A-Z]{2}$/.test(trimmed) || /^[a-z]{2}$/.test(trimmed)) {
     try {
       const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
       const fullName = regionNames.of(trimmed);
