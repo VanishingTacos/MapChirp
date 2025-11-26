@@ -1,38 +1,13 @@
 // This script is injected into the page context to observe fetch() calls
 (function () {
     try {
+        let lastToken = null;
         const originalFetch = window.fetch;
         window.fetch = async function (...args) {
             const response = await originalFetch.apply(this, args);
 
             try {
                 const url = args[0];
-                const options = args[1];
-
-                // Intercept Authorization header
-                let headers = options && options.headers ? options.headers : {};
-
-                // Handle case where args[0] is a Request object
-                if (args[0] instanceof Request) {
-                    try {
-                        // Iterate over headers if possible, or check specific ones
-                        // Request.headers is a Headers object
-                        const reqHeaders = args[0].headers;
-                        if (reqHeaders) {
-                            if (reqHeaders.get('Authorization')) headers['Authorization'] = reqHeaders.get('Authorization');
-                            if (reqHeaders.get('authorization')) headers['authorization'] = reqHeaders.get('authorization');
-                        }
-                    } catch (e) {
-                        // console.log('MapChirp: Error reading Request headers', e);
-                    }
-                }
-
-                if (headers) {
-                    let auth = headers['Authorization'] || headers['authorization'];
-                    if (auth) {
-                        window.postMessage({ source: 'x-location-display-page', type: 'token', token: auth }, '*');
-                    }
-                }
 
                 if (typeof url === 'string' && url.includes('AboutAccountQuery')) {
                     const clonedResponse = response.clone();
@@ -65,7 +40,10 @@
 
         XMLHttpRequest.prototype.setRequestHeader = function (header, value) {
             if (header && (header.toLowerCase() === 'authorization')) {
-                window.postMessage({ source: 'x-location-display-page', type: 'token', token: value }, '*');
+                if (value !== lastToken) {
+                    lastToken = value;
+                    window.postMessage({ source: 'x-location-display-page', type: 'token', token: value }, '*');
+                }
             }
             return originalSetRequestHeader.apply(this, arguments);
         };

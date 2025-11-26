@@ -54,12 +54,12 @@ const processedTweets = new WeakSet();
 const pendingRequests = new Map();
 
 // Rate limiting: maximum concurrent requests
-const MAX_CONCURRENT_REQUESTS = 3;
+const MAX_CONCURRENT_REQUESTS = 1;
 let activeRequests = 0;
 
 // Advanced rate limiting: request queue and throttling
 const requestQueue = [];
-const REQUEST_INTERVAL = 300; // Minimum ms between requests
+const REQUEST_INTERVAL = 1000; // Minimum ms between requests
 let lastRequestTime = 0;
 let isProcessingQueue = false;
 
@@ -322,8 +322,11 @@ async function processRequestQueue() {
 
     // Enforce minimum time between requests
     const timeSinceLastRequest = Date.now() - lastRequestTime;
-    if (timeSinceLastRequest < REQUEST_INTERVAL) {
-      await new Promise(resolve => setTimeout(resolve, REQUEST_INTERVAL - timeSinceLastRequest));
+    const jitter = Math.floor(Math.random() * 500); // Add 0-500ms jitter
+    const intervalWithJitter = REQUEST_INTERVAL + jitter;
+
+    if (timeSinceLastRequest < intervalWithJitter) {
+      await new Promise(resolve => setTimeout(resolve, intervalWithJitter - timeSinceLastRequest));
     }
 
     const { username, resolve, reject } = requestQueue.shift();
@@ -376,6 +379,7 @@ async function executeLocationFetch(username) {
     // Check for rate limiting
     if (response.status === 429) {
       rateLimitedUntil = Date.now() + RATE_LIMIT_COOLDOWN;
+      chrome.storage.local.set({ rate_limit_until: rateLimitedUntil });
       recordFailure(normalizedUsername);
       locationCache.set(normalizedUsername, null);
       return null;
@@ -636,7 +640,7 @@ function processVisibleTweets() {
     const batch = tweetsArray.slice(i, i + BATCH_SIZE);
     setTimeout(() => {
       batch.forEach(tweet => processTweet(tweet));
-    }, Math.floor(i / BATCH_SIZE) * 200); // Stagger batches by 200ms
+    }, Math.floor(i / BATCH_SIZE) * 500); // Stagger batches by 500ms
   }
 }
 
