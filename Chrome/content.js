@@ -54,12 +54,12 @@ const processedTweets = new WeakSet();
 const pendingRequests = new Map();
 
 // Rate limiting: maximum concurrent requests
-const MAX_CONCURRENT_REQUESTS = 3;
+const MAX_CONCURRENT_REQUESTS = 1;
 let activeRequests = 0;
 
 // Advanced rate limiting: request queue and throttling
 const requestQueue = [];
-const REQUEST_INTERVAL = 300; // Minimum ms between requests
+const REQUEST_INTERVAL = 1000; // Minimum ms between requests
 let lastRequestTime = 0;
 let isProcessingQueue = false;
 
@@ -72,6 +72,19 @@ const MAX_BACKOFF = 60000; // 60 seconds
 // Rate limit detection
 let rateLimitedUntil = 0;
 const RATE_LIMIT_COOLDOWN = 30000; // 30 seconds cooldown after rate limit
+
+// Dynamic Bearer Token
+let dynamicBearerToken = null;
+const STORAGE_KEY_TOKEN = 'x_bearer_token';
+
+// Load token from storage
+if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+  chrome.storage.local.get([STORAGE_KEY_TOKEN], (result) => {
+    if (result[STORAGE_KEY_TOKEN]) {
+      dynamicBearerToken = result[STORAGE_KEY_TOKEN];
+    }
+  });
+}
 
 // Batch-load persistent cache from storage
 async function loadPersistentCache() {
@@ -101,47 +114,58 @@ async function loadPersistentCache() {
 // Start loading cache immediately
 loadPersistentCache();
 
-// Intercept X's fetch requests to capture location data
-const originalFetch = window.fetch;
-window.fetch = async function(...args) {
-  const response = await originalFetch.apply(this, args);
+// Inject the page script so it runs in page context and can override window.fetch
+(function injectPageObserver() {
+  try {
+    const script = document.createElement('script');
+    script.src = chrome.runtime.getURL('page_inject.js');
+    script.onload = function () { this.remove(); };
+    (document.head || document.documentElement).appendChild(script);
+  } catch (e) {
+    // ignore
+  }
+})();
 
-  // Check if this is a GraphQL AboutAccountQuery response
-  const url = args[0];
-  if (typeof url === 'string' && url.includes('AboutAccountQuery')) {
-    // Clone response so we can read it without consuming it
-    const clonedResponse = response.clone();
-    try {
-      const data = await clonedResponse.json();
-      const username = data?.data?.user_result_by_screen_name?.result?.core?.screen_name;
-      const location = data?.data?.user_result_by_screen_name?.result?.about_profile?.account_based_in;
+// Listen for messages from the page injector
+window.addEventListener('message', (event) => {
+  if (event.source !== window) return;
+  const data = event.data;
+  if (!data || data.source !== 'x-location-display-page') return;
 
-      if (username && location) {
-        const normalizedUsername = username.toLowerCase();
-        const sanitizedLocation = sanitizeLocation(location);
-        if (sanitizedLocation) {
-          locationCache.set(normalizedUsername, sanitizedLocation);
-          
-          // Persist to storage
-          try {
-            chrome.storage.local.set({
-              [`loc_${normalizedUsername}`]: {
-                location: sanitizedLocation,
-                timestamp: Date.now()
-              }
-            });
-          } catch (e) {
-            // Ignore storage errors
-          }
+  try {
+    if (data.type === 'token' && data.token) {
+      if (dynamicBearerToken !== data.token) {
+        dynamicBearerToken = data.token;
+        chrome.storage.local.set({ [STORAGE_KEY_TOKEN]: data.token });
+      }
+      return;
+    }
+
+    const username = data.username;
+    const location = data.location;
+    if (username && location) {
+      const normalizedUsername = username.toLowerCase();
+      const sanitizedLocation = sanitizeLocation(location);
+      if (sanitizedLocation) {
+        locationCache.set(normalizedUsername, sanitizedLocation);
+
+        // Persist to storage
+        try {
+          chrome.storage.local.set({
+            [`loc_${normalizedUsername}`]: {
+              location: sanitizedLocation,
+              timestamp: Date.now()
+            }
+          });
+        } catch (e) {
+          // ignore storage errors
         }
       }
-    } catch (e) {
-      // Ignore errors
     }
+  } catch (e) {
+    // ignore
   }
-
-  return response;
-};
+});
 
 /**
  * Normalizes country names to their common forms
@@ -150,7 +174,7 @@ function normalizeCountryNames(location) {
   const countryReplacements = {
     'Viet Nam': 'Vietnam'
   };
-  
+
   let normalized = location;
   for (const [wrong, correct] of Object.entries(countryReplacements)) {
     normalized = normalized.replace(new RegExp(wrong, 'g'), correct);
@@ -163,9 +187,24 @@ function normalizeCountryNames(location) {
  */
 function sanitizeLocation(location) {
   if (!location || typeof location !== 'string') return null;
-  const trimmed = location.trim();
+  let trimmed = location.trim();
   if (trimmed.length < 1 || trimmed.length > 100) return null;
   if (['null', 'undefined', 'N/A', 'n/a'].includes(trimmed.toLowerCase())) return null;
+
+  // Check if it looks like a country code (2 uppercase or lowercase letters)
+  // X/Twitter sometimes returns "US", "DE", etc. instead of full names
+  if (/^[A-Z]{2}$/.test(trimmed) || /^[a-z]{2}$/.test(trimmed)) {
+    try {
+      const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
+      const fullName = regionNames.of(trimmed);
+      if (fullName) {
+        trimmed = fullName;
+      }
+    } catch (e) {
+      // ignore, keep original
+    }
+  }
+
   return normalizeCountryNames(trimmed);
 }
 
@@ -246,11 +285,11 @@ function recordFailure(username) {
   const failed = failedRequests.get(username) || { count: 0, lastAttempt: 0, backoffUntil: 0 };
   failed.count++;
   failed.lastAttempt = Date.now();
-  
+
   // Exponential backoff: 2s, 4s, 8s, then cap at MAX_BACKOFF
   const backoffTime = Math.min(BASE_BACKOFF * Math.pow(2, failed.count - 1), MAX_BACKOFF);
   failed.backoffUntil = Date.now() + backoffTime;
-  
+
   failedRequests.set(username, failed);
 }
 
@@ -283,13 +322,16 @@ async function processRequestQueue() {
 
     // Enforce minimum time between requests
     const timeSinceLastRequest = Date.now() - lastRequestTime;
-    if (timeSinceLastRequest < REQUEST_INTERVAL) {
-      await new Promise(resolve => setTimeout(resolve, REQUEST_INTERVAL - timeSinceLastRequest));
+    const jitter = Math.floor(Math.random() * 500); // Add 0-500ms jitter
+    const intervalWithJitter = REQUEST_INTERVAL + jitter;
+
+    if (timeSinceLastRequest < intervalWithJitter) {
+      await new Promise(resolve => setTimeout(resolve, intervalWithJitter - timeSinceLastRequest));
     }
 
     const { username, resolve, reject } = requestQueue.shift();
     lastRequestTime = Date.now();
-    
+
     executeLocationFetch(username).then(resolve).catch(reject);
   }
 
@@ -317,11 +359,14 @@ async function executeLocationFetch(username) {
     const variables = JSON.stringify({ screenName: username });
     const url = `https://x.com/i/api/graphql/${queryId}/AboutAccountQuery?variables=${encodeURIComponent(variables)}`;
 
+    // Use dynamic token if available, otherwise fallback (though fallback might be stale)
+    const authHeader = dynamicBearerToken || 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA';
+
     const response = await fetch(url, {
       method: 'GET',
       headers: {
         'accept': '*/*',
-        'authorization': 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA',
+        'authorization': authHeader,
         'content-type': 'application/json',
         'x-csrf-token': csrfToken,
         'x-twitter-active-user': 'yes',
@@ -334,6 +379,7 @@ async function executeLocationFetch(username) {
     // Check for rate limiting
     if (response.status === 429) {
       rateLimitedUntil = Date.now() + RATE_LIMIT_COOLDOWN;
+      chrome.storage.local.set({ rate_limit_until: rateLimitedUntil });
       recordFailure(normalizedUsername);
       locationCache.set(normalizedUsername, null);
       return null;
@@ -355,7 +401,7 @@ async function executeLocationFetch(username) {
       if (sanitizedLocation) {
         clearFailure(normalizedUsername); // Clear failure tracking on success
         locationCache.set(normalizedUsername, sanitizedLocation);
-      
+
         // Persist to storage
         try {
           chrome.storage.local.set({
@@ -367,7 +413,7 @@ async function executeLocationFetch(username) {
         } catch (e) {
           // ignore storage errors
         }
-        
+
         return sanitizedLocation;
       }
     }
@@ -456,7 +502,7 @@ function passesCountryFilter(location) {
     return true; // No filter, show all
   }
   const lowerLocation = location.toLowerCase();
-  return settings.countryFilter.some(country => 
+  return settings.countryFilter.some(country =>
     lowerLocation.includes(country.toLowerCase())
   );
 }
@@ -585,16 +631,16 @@ async function processTweet(tweetElement) {
 function processVisibleTweets() {
   // Find all tweet articles
   const tweets = document.querySelectorAll('article[data-testid="tweet"]');
-  
+
   // Process in smaller batches to avoid queue overflow
   const BATCH_SIZE = 10;
   const tweetsArray = Array.from(tweets);
-  
+
   for (let i = 0; i < tweetsArray.length; i += BATCH_SIZE) {
     const batch = tweetsArray.slice(i, i + BATCH_SIZE);
     setTimeout(() => {
       batch.forEach(tweet => processTweet(tweet));
-    }, Math.floor(i / BATCH_SIZE) * 200); // Stagger batches by 200ms
+    }, Math.floor(i / BATCH_SIZE) * 500); // Stagger batches by 500ms
   }
 }
 

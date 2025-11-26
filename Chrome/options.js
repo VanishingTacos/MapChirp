@@ -127,12 +127,39 @@ function exportData() {
   });
 }
 
+// Toggle token visibility
+function toggleTokenVisibility() {
+  const container = document.getElementById('tokenContainer');
+  const textarea = document.getElementById('tokenText');
+  const button = document.getElementById('viewToken');
+
+  if (container.style.display === 'none') {
+    // Show token
+    chrome.storage.local.get(['x_bearer_token'], (items) => {
+      const token = items.x_bearer_token;
+
+      if (token) {
+        textarea.value = token;
+        container.style.display = 'block';
+        button.textContent = 'Hide Token';
+      } else {
+        showNotification('No token found. Try reloading Twitter/X.', 'error');
+      }
+    });
+  } else {
+    // Hide token
+    container.style.display = 'none';
+    button.textContent = 'View Token';
+    textarea.value = ''; // Clear for security
+  }
+}
+
 // Setup event listeners
 document.addEventListener('DOMContentLoaded', () => {
   loadSettings();
 
   // Toggle display
-  document.getElementById('toggleDisplay').addEventListener('click', function() {
+  document.getElementById('toggleDisplay').addEventListener('click', function () {
     this.classList.toggle('on');
     const label = document.getElementById('toggleDisplayLabel');
     const isOn = this.classList.contains('on');
@@ -154,4 +181,5 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('saveSettings').addEventListener('click', saveSettings);
   document.getElementById('resetSettings').addEventListener('click', resetSettings);
   document.getElementById('exportData').addEventListener('click', exportData);
+  document.getElementById('viewToken').addEventListener('click', toggleTokenVisibility);
 });

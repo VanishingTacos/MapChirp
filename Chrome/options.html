@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -189,6 +190,7 @@
     }
   </style>
 </head>
+
 <body>
   <h1>📍 MapChirp - Settings</h1>
 
@@ -230,14 +232,16 @@
 
   <div class="settings-section">
     <div class="setting-title">Filter Specific Countries</div>
-    <div class="setting-description">Enter country names to filter (one per line). Leave empty to show all countries.</div>
+    <div class="setting-description">Enter country names to filter (one per line). Leave empty to show all countries.
+    </div>
 
     <div class="input-group">
       <textarea id="countryFilter" placeholder="Example:&#10;United States&#10;United Kingdom&#10;Canada"></textarea>
     </div>
 
     <div class="info-box">
-      Filter works by checking if the location text contains the country name (case-insensitive). Leave empty to disable filtering.
+      Filter works by checking if the location text contains the country name (case-insensitive). Leave empty to disable
+      filtering.
     </div>
   </div>
 
@@ -250,6 +254,16 @@
     </div>
   </div>
 
+  <div class="settings-section">
+    <div class="setting-title">Debug</div>
+    <div class="setting-description">View authentication token for debugging purposes</div>
+    <button class="button secondary" id="viewToken">View Token</button>
+    <div id="tokenContainer" style="display: none; margin-top: 10px;">
+      <textarea id="tokenText" readonly
+        style="width: 100%; height: 80px; font-size: 12px; border: 1px solid #eff3f4; border-radius: 8px; padding: 8px; box-sizing: border-box; resize: none; font-family: monospace;"></textarea>
+    </div>
+  </div>
+
   <div class="button-group">
     <button class="button primary" id="saveSettings">Save Settings</button>
     <button class="button secondary" id="resetSettings">Reset to Defaults</button>
@@ -257,4 +271,5 @@
 
   <script src="options.js"></script>
 </body>
+
 </html>

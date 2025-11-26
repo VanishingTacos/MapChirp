@@ -29,6 +29,12 @@ function setupEventListeners() {
     clearCacheButton.addEventListener('click', clearCache);
   }
 
+  // Reset token button
+  const resetTokenButton = document.getElementById('resetToken');
+  if (resetTokenButton) {
+    resetTokenButton.addEventListener('click', resetToken);
+  }
+
   // Open map button
   const openMapButton = document.getElementById('openMap');
   if (openMapButton) {
@@ -57,8 +63,13 @@ async function updateStats() {
     // Update status
     const statusElement = document.getElementById('status');
     if (statusElement) {
-      statusElement.textContent = 'Active';
-      statusElement.style.color = '#00ba7c';
+      if (items.rate_limit_until && Date.now() < items.rate_limit_until) {
+        statusElement.textContent = 'Rate Limited';
+        statusElement.style.color = '#e67e22';
+      } else {
+        statusElement.textContent = 'Active';
+        statusElement.style.color = '#00ba7c';
+      }
     }
   });
 }
@@ -79,6 +90,15 @@ function clearCache() {
       showNotification(`Cleared ${keysToRemove.length} cached locations!`, 'success');
       updateStats();
     });
+  });
+}
+
+/**
+ * Resets the stored authentication token
+ */
+function resetToken() {
+  chrome.storage.local.remove(['x_bearer_token'], () => {
+    showNotification('Token reset! Reload page to capture new one.', 'success');
   });
 }
 

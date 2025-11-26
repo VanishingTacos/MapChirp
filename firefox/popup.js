@@ -52,6 +52,11 @@ function setupEventListeners() {
     clearCacheButton.addEventListener('click', clearCache);
   }
 
+  const resetTokenButton = document.getElementById('resetToken');
+  if (resetTokenButton) {
+    resetTokenButton.addEventListener('click', resetToken);
+  }
+
   const optionsButton = document.getElementById('openOptions');
   if (optionsButton) {
     optionsButton.addEventListener('click', openOptions);
@@ -74,8 +79,13 @@ async function updateStats() {
 
     const statusElement = document.getElementById('status');
     if (statusElement) {
-      statusElement.textContent = 'Active';
-      statusElement.style.color = '#00ba7c';
+      if (items.rate_limit_until && Date.now() < items.rate_limit_until) {
+        statusElement.textContent = 'Rate Limited';
+        statusElement.style.color = '#e67e22';
+      } else {
+        statusElement.textContent = 'Active';
+        statusElement.style.color = '#00ba7c';
+      }
     }
   } catch (e) {
     const statusElement = document.getElementById('status');
@@ -102,6 +112,17 @@ function clearCache() {
       updateStats();
     } catch (e) {
       showNotification('Failed to clear cache.', 'error');
+    }
+  })();
+}
+
+function resetToken() {
+  (async () => {
+    try {
+      await storageRemove(['x_bearer_token']);
+      showNotification('Token reset! Reload page to capture new one.', 'success');
+    } catch (e) {
+      showNotification('Failed to reset token.', 'error');
     }
   })();
 }
